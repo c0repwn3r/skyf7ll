@@ -51,9 +51,72 @@ xcodebtn.pack()
 def run_jb():
     jbbtn['state'] = 'disabled'
     log('building jailbreakd')
-    os.chdir('fugu14')
     log(f'using code sign identity: {codesign_identity}')
     log('in directory, starting jailbreak')
+    csIdentity = CODESIGN_IDENTITY
+    if not csIdentity:
+        csIdentity = "Apple Dev"
+    prlogint('Patching build.sh')
+    with open('fugu14/arm/iOS/jailbreakd/build.sh', 'r') as f:
+        build_sh = f.read()
+    lines = []
+    for line in build_sh.split("\n"):
+        if line.startswith("CODESIGN_IDENTITY="):
+            lines.append(f'CODESIGN_IDENTITY="{csIdentity}"')
+        else:
+            lines.append(line)
+
+    with open("fugu14/arm/iOS/jailbreakd/build.sh", "w") as f:
+        f.write("\n".join(lines))
+    log('build.sh patched successfully')
+    log('compiling jailbreakd')
+    try:
+        subprocess.run(['/bin/bash', 'build.sh'], check=True, cwd='fugu14/arm/iOS/jailbreakd')
+    except subprocess.CalledProcessError as e:
+        log(f'failed to build jailbreakd! exit code: {e.returncode}')
+        exit(-1)
+    log('Successfully built jailbreakd')
+    log('getting jailbreakd cdhash')
+    try:
+        out = subprocess.run(['/usr/bin/codesign', '-dvvv', 'fugu14/arm/iOS/Fugu14App/Fugu14App/jailbreakd'], capture_output=True, check=True)
+    except subprocess.CalledProcessError as e:
+        log(f'failed to get cdhash! exit code: {e.returncode}')
+        log(f'codesign stdout: {e.stdout}')
+        log(f'codesign stderr: {e.stderr}')
+        exit(-1)
+    cdhash = None
+    out = out.stderr.decode('utf-8')
+    for line in out.split('\n'):
+        if line.startswith("CDHash="):
+            cdhash = line[7:]
+            break
+    if cdhash is None:
+        log(f'codesign did not output cdhash!')
+        exit(-1)
+    log(f'jailbreakd cdhash: {cdhash}')
+    log('patching closures')
+    
+    with open('fugu14/arm/iOS/Fugu14App/Fugu14App/closures.swift', 'r') as f:
+        closure_swift = f.read()
+    
+    lines = []
+    for line in closure_swift.split("\n"):
+        if line.startswith('        try simpleSetenv("JAILBREAKD_CDHASH", '):
+            lines.append (f'        try simpleSetenv("JAILBREAKD_CDHASH", "{cdhash}")')
+        else:
+            lines.append(line)
+
+    with open("fugu14/arm/iOS/Fugu14App/Fugu14App/closures.swift", "w") as f:
+        f.write("\n".join(lines))
+
+    log("patched")
+
+    log("compiling jailbreak app")
+    try:
+        subprocess.run(['xcodebuild', '-scheme', 'Fugu14App', '-derivedDataPath', 'build'], check=True, cwd='fugu14/arm/iOS/Fugu14App')
+    except subprocess.CalledProcessError:
+        log(f'failed to compile fugu14! exit code: {e.returncode}')
+        log(f'if this was a code signing error, click Open XCode Project and ensure code signing is correct.')
 
 jbbtn['command'] = run_jb
 jbbtn.pack()
