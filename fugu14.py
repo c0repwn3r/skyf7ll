@@ -157,7 +157,7 @@ def run_jb():
     mf = ''
     for folder, subfolder, files in os.walk(path):
         for file in files:
-        size = os.stat(os.path.join( folder, file  )).st_size
+            size = os.stat(os.path.join( folder, file  )).st_size
         if size>max_size:
             max_size = size
             max_file = os.path.join(folder, file)
