@@ -41,6 +41,15 @@ def refreshcsi():
 b['command'] = refreshcsi
 b.pack()
 
+IPSW_READY = False
+
+def loadipsw():
+    IPSW_READY=True
+    return
+
+i = Button(root, text='Load IPSW', bd='5', command=loadipsw)
+i.pack()
+
 def openxcproj():
     os.system('xed fugu14/arm/iOS/Fugu14App/Fugu14App.xcodeproj')
 
@@ -114,9 +123,70 @@ def run_jb():
     log("compiling jailbreak app")
     try:
         subprocess.run(['xcodebuild', '-scheme', 'Fugu14App', '-derivedDataPath', 'build'], check=True, cwd='fugu14/arm/iOS/Fugu14App')
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
         log(f'failed to compile fugu14! exit code: {e.returncode}')
         log(f'if this was a code signing error, click Open XCode Project and ensure code signing is correct.')
+        exit(-1)
+    log('ready. please place your IPSW in **this folder**, and name it firmware.ipsw. when done, click Load IPSW below.')
+    while not IPSW_READY:
+        continue
+    log('attempting to load ipsw')
+    IPSW_READY = False
+    try:
+        subprocess.run(['mv', 'firmware.ipsw', 'firmware.zip'])
+    except subprocess.CalledProcessError as e:
+        log(f'failed to extract firmware! exit code: {e.returncode}')
+        exit(-1)
+    try:
+        if not os.path.exists('firmware/'):
+            subprocess.run(['mkdir', 'firmware'])
+        if not os.path.exists('mountd/'):
+            subprocess.run(['mkdir', 'mountd'])
+    except subprocess.CalledProcessError as e:
+        log(f'failed to create extract/mount dirs! exit code: {e.returncode}')
+        exit(-1)
+    log('extracting ipsw file, this might take a while. please be patient!')
+    try:
+        subprocess.run(['unzip', 'firmware.zip', '-d', 'firmware/'])
+    except subprocess.CalledProcessError as e:
+        log(f'failed to extract firmware! exit code: {e.returncode}')
+        exit(-1)
+    path = os.path.abspath('firmware/')
+    size = 0
+    msize = 0
+    mf = ''
+    for folder, subfolder, files in os.walk(path):
+        for file in files:
+        size = os.stat(os.path.join( folder, file  )).st_size
+        if size>max_size:
+            max_size = size
+            max_file = os.path.join(folder, file)
+    log(f'mounting {mf}')
+    try:
+        subprocess.run(['mount', mf, 'mountd/'])
+    except subprocess.CalledProcessError as e:
+        log(f'failed to mount dmg! exit code: {e.returncode}')
+        exit(-1)
+    log(f'grabbing Spotlight.app')
+    if not os.path.exists('mountd/Applications/Spotlight.app'):
+        log(f'Spotlight does not exist!')
+        exit(-1)
+    try:
+        subprocess.run(['cp', 'mountd/Applications/Spotlight.app', 'Spotlight.app'])
+    except subprocess.CalledProcessError as e:
+        log(f'failed to copy spotlight! exit code: {e.returncode}')
+        exit(-1)
+    try:
+        subprocess.run(['umount', 'mountd'])
+    except subprocess.CalledProcessError as e:
+        log(f'failed to unmount drive! exit code: {e.returncode}')
+        exit(-1)
+    log('creating IPAs')
+    try:
+        subprocess.run(["/bin/bash", "build_ipas.sh", "../arm/iOS/Fugu14App/build/Build/Products/Release-iphoneos/Fugu14App.app", mntPath], check=True, cwd="fugu14/tools")
+    except subprocess.CalledProcessError as e:
+    print(f"Failed to create IPAs! Exit status: {e.returncode}")
+    exit(-1)
 
 jbbtn['command'] = run_jb
 jbbtn.pack()
