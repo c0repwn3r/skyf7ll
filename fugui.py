@@ -1,9 +1,13 @@
 from tkinter import *
 import tkinter.ttk
+from tkinter.messagebox import showinfo
 import subprocess
 import os
+import time
 
 from devices import *
+
+from multiprocessing.connection import Client
 
 root=Tk()
 root.wm_title('skyf7ll | checking dependencies (0/8)')
@@ -75,6 +79,11 @@ deviceVersionKey='ProductVersion'
 use_skyfall = False
 checkra1n_dwl = 'https://assets.checkra.in/downloads/macos/754bb6ec4747b2e700f01307315da8c9c32c8b5816d0fe1e91d1bdfc298fe07b/checkra1n%20beta%200.12.4.dmg'
 
+def setProgress(val, maxv):
+    progress['maximum'] = maxv
+    progress['value'] = val
+    root.update_idletasks()
+
 def get_codesign_identity():
     # this thing is a freakin complicated mess
     out = subprocess.run(['security', 'find-identity'], check=True, capture_output=True)
@@ -123,10 +132,12 @@ def updatedeps():
         fg = 'green'
         txt = 'can'
         titlestat = 'ready'
+        setProgress(0, 0)
     else:
         titlestat = f'checking dependencies ({depsmet}/8)'
         jbbtn['command'] = None
         jbbtn['state'] = 'disabled'
+        setProgress(8*depsmet/8, 8)
     error['text'] = f'{depsmet}/8 dependencies met, {txt} jailbreak'
     error['fg'] = fg
     setTitleStatus(titlestat)
@@ -135,9 +146,36 @@ def updatedeps():
 def getKey(key):
     return subprocess.run(['/usr/local/bin/ideviceinfo', '-k', key], capture_output=True).stdout.decode('utf-8')
 
-def skyfall_run():
-    pass
+def setprog(stat, stage):
+    global status
+    global progress
+    status['text'] = f'status: {stat}'
+    progress['maximum'] = 12
+    progress['value'] = 12*stage/12
+    root.update_idletasks()
 
+def skyfall_run():
+    # stages: command server start, command server conn, jailbreakd patch, jailbreakd compile, fugu patch, fugu compile, ipsw extract, ipa build, setup install, setup, exploit install, exploit
+    # 12 stages
+    jbbtn['state'] = 'disabled'
+    status['text'] = 'status: prepping'
+    setTitleStatus('jailbreaking')
+    setprog('starting command server', 1)
+    # start command server
+    wrapperscript = 'osascript -e "tell application \"Terminal\" to do script \"cd $PWD && python3 cmdserver.py\""'
+    subprocess.Popen(wrapperscript.split(), cwd=os.path.dirname(os.path.realpath(__file__)))
+    setprog('waiting for command server', 1)
+    showinfo('Start command server', 'Please double-click on STAGE2.command at this time. Click Ok when you see the text `listening on 6151`')
+    address = ('localhost', 6151)
+    try:
+        conn = Client(address, authkey=b'skyf7ll-ipc')
+    except:
+        setprog('failed to connect to command server!', 0)
+        jbbtn['state'] = 'normal'
+        setTitleStatus('failed')
+        return
+    setprog('connected to command server', 2)
+    setprog('patching jailbreakd')
 def checkrain_run():
     pass
 
@@ -180,13 +218,14 @@ def updateDevice():
 def check_for_device():
     global devmet
     if libimobiledevice['text'] == 'libimobiledevice: installed!':
-        if subprocess.run(['/usr/local/bin/idevice_id'], capture_output=True).stdout.decode('utf-8') != '':
+        out = subprocess.run(['/usr/local/bin/idevice_id'], capture_output=True).stdout.decode('utf-8')
+        if devmet == False and out != '':
             device['text'] = 'device: connected!'
             device['fg'] = 'green'
             devmet = True
             updateDevice()
             updatedeps()
-        else:
+        elif out == '':
             device['text'] = 'device: not connected'
             device['fg'] = 'red'
             devmet = False
